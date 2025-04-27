@@ -2,7 +2,7 @@ import csv
 import re
 import os
 import bz2
-import cPickle
+import pickle
 import sys
 from collections import namedtuple, defaultdict
 from datetime import datetime
@@ -99,7 +99,7 @@ def parse95(path):
 def parse2000(path):
     testID = os.path.splitext(os.path.basename(path))[0]    
     lineIter = iter(open(path))
-    lineIter.next()
+    next(lineIter)
     hwAvail = scanUntilLine(lineIter, 'Hardware availability: (.*)')
     tester = scanUntilLine(lineIter, 'Tester: (.*?) *Software availability')
     for line in lineIter:
@@ -154,7 +154,7 @@ def parse2000(path):
 def parse2006(path):
     testID = os.path.splitext(os.path.basename(path))[0]    
     lineIter = iter(open(path))
-    if '######################' in lineIter.next():
+    if '######################' in next(lineIter):
         return [], []
     model = lineIter.next().strip()
     hwAvail = scanUntilLine(lineIter, 'Hardware availability: (.*)')
@@ -228,20 +228,20 @@ def iterRecords():
     benches = []
     for i, pair in enumerate(allTests):
         if i % 100 == 0:
-            print 'Analyzing %d/%d ...' % (i, len(allTests))
+            print('Analyzing %d/%d ...' % (i, len(allTests)))
         func, arg = pair
         t, b = func(arg)
         tests += t
         benches += b
         
-    print 'Writing summaries.txt ...'
+    print('Writing summaries.txt ...')
     with open('summaries.txt', 'w') as f:
         w = csv.writer(f)
         w.writerow(TestRecord._fields)
         for t in tests:
             w.writerow(t)
             
-    print 'Writing benchmarks.txt ...'
+    print('Writing benchmarks.txt ...')
     with open('benchmarks.txt', 'w') as f:
         w = csv.writer(f)
         w.writerow(BenchRecord._fields)

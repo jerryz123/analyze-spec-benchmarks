@@ -5,9 +5,10 @@ import math
 import re
 import itertools
 import sys
-import urllib2
+import urllib.request, urllib.error, urllib.parse
 import os
 from contextlib import contextmanager
+from functools import reduce
 
 try:
     import cairo
@@ -248,7 +249,7 @@ def iterResults():
     summaryTable = {}
     for srec in iterCsvRecords('summaries.txt', 'SummaryRecord'):
         summaryTable[srec.testID] = srec
-        benches = [brec for brec in benchTable[srec.testID].itervalues()
+        benches = [brec for brec in benchTable[srec.testID].values()
                    if brec.benchName not in DISQUALIFIED_BENCHMARKS]
         hwDate = datetime.datetime.strptime(srec.hwAvail, '%b-%Y')
         yield Result(benchType=srec.benchType,
@@ -298,12 +299,12 @@ if 'PIL' in globals():
             if zooms > 0:
                 cr.scale(2.0, 2.0)
                 cr.translate(0.5, 0.5)
-            for i in xrange(1, zooms):
+            for i in range(1, zooms):
                 cr.scale(2.0, 2.0)
                 
         def write_to_png(self, path):
             im = PIL.Image.frombuffer('RGBA', (self.surface.get_width(), self.surface.get_height()), self.surface.get_data(), 'raw', 'BGRA', 0, 1)
-            for i in xrange(self.zooms - 1, -1, -1):
+            for i in range(self.zooms - 1, -1, -1):
                 im = im.resize((self.width * 2**i, self.height * 2**i), PIL.Image.BILINEAR)
             im.save(path)
             
@@ -334,7 +335,7 @@ def RenderGraph(mode, resultsByBrand, outPath):
     minDate = datetime.datetime(1995, 1, 1)
 
     # Calculate axis extents and actual graph size.
-    allRibs = sum(resultsByBrand.values(), [])
+    allRibs = sum(list(resultsByBrand.values()), [])
     maxDate = max([r.hwDate for r in allRibs])
     months = monthDelta(minDate, maxDate)
     maxLogScore = int(round(math.log(max([r.convertedScore for r in allRibs]), 2)))
@@ -402,7 +403,7 @@ def RenderGraph(mode, resultsByBrand, outPath):
         alignText(cr, titleFont, .5, 'Single-Threaded %s Performance' % fullType, graphSize[0] / 2 - 10, -19)
         subTitleFont = createScaledFont('Arial', 11)
         cr.set_source_rgb(.6, .6, .6)
-        alignText(cr, subTitleFont, .5, u'Based on adjusted SPEC%s\xae results' % mode, graphSize[0] / 2, -5)
+        alignText(cr, subTitleFont, .5, 'Based on adjusted SPEC%s\xae results' % mode, graphSize[0] / 2, -5)
     
     # Shaded area.
     with saved(cr):
@@ -426,7 +427,7 @@ def RenderGraph(mode, resultsByBrand, outPath):
                     label = str(2 ** exp)
                     f = scoreFont
                 else:
-                    label = { -1: unichr(189), -2: unichr(188) }.get(exp, '')
+                    label = { -1: chr(189), -2: chr(188) }.get(exp, '')
                     f = fractionFont
                 alignText(cr, f, 1, label, -6, y + 6)
             cr.move_to(0, y + .5)
@@ -458,8 +459,8 @@ def RenderGraph(mode, resultsByBrand, outPath):
             if brand:
                 rib = resultsByBrand[brand]
             else:
-                rib = sum([rib for b, rib in resultsByBrand.iteritems() if b not in recognized], [])
-            cr.set_source_rgb(*[int(color[i:i+2], 16)/255.0 for i in xrange(0, 6, 2)])
+                rib = sum([rib for b, rib in resultsByBrand.items() if b not in recognized], [])
+            cr.set_source_rgb(*[int(color[i:i+2], 16)/255.0 for i in range(0, 6, 2)])
             for r in rib:
                 logScore = math.log(r.convertedScore, 2)
                 x = (monthDelta(minDate, r.hwDate) - .5) * pelsPerMonth
@@ -468,7 +469,7 @@ def RenderGraph(mode, resultsByBrand, outPath):
                     totalPoints += 1
                     shape(cr, x, graphSize[1] - y)
                     cr.fill()
-    print '%d points plotted for SPEC%s' % (totalPoints, mode)
+    print('%d points plotted for SPEC%s' % (totalPoints, mode))
     
     # Render legend.
     with saved(cr):
@@ -485,7 +486,7 @@ def RenderGraph(mode, resultsByBrand, outPath):
         cr.translate(7, 9)
         for color, brand, shape, listOrder in brandColors:
             # Icon
-            cr.set_source_rgb(*[int(color[i:i+2], 16)/255.0 for i in xrange(0, 6, 2)])
+            cr.set_source_rgb(*[int(color[i:i+2], 16)/255.0 for i in range(0, 6, 2)])
             shape(cr, 0, listOrder * spacing - 1)
             cr.fill()
             # Text
@@ -511,19 +512,19 @@ with redirected_to_file('identified_cpus.txt'):
     for k, speeds in sorted(CPUDB.modelSpeeds.items()) + [((None, ''), [])]:
         if brand != k[0]:
             if brand is not None:
-                print '%s x %d' % (brand, count)
+                print('%s x %d' % (brand, count))
             brand = k[0]
             count = 0
         count += 1
-    print
+    print()
 
     # Individual models:
     table = dict([(r.cpu, r) for r in ALL_RESULTS])
     for dummy, r in sorted(table.items()):
         cpu = CPUDB.identify(r)
         id = '%s|%s (%d Mhz)' % (cpu.brand, cpu.model, r.mhz)
-        print '%-60s "%s" %s#%s' % (id, r.cpu, r.benchType, r.srec.testID)
-        print '%-60s "%s" %s#%s' % (id, r.cpu, r.benchType, r.srec.testID)
+        print('%-60s "%s" %s#%s' % (id, r.cpu, r.benchType, r.srec.testID))
+        print('%-60s "%s" %s#%s' % (id, r.cpu, r.benchType, r.srec.testID))
 
 # Scan INT benchmarks, then FP.
 for MODE in ['INT', 'FP']:
@@ -542,7 +543,7 @@ for MODE in ['INT', 'FP']:
     # available conversion ratios.
     ratio2000 = []
     ratio2006 = []
-    for cpu, results in resultsByCPU.iteritems():
+    for cpu, results in resultsByCPU.items():
         sliceByType = [[r.score for r in results if r.benchType == b] for b in benchTypes]
         if sliceByType[0] and sliceByType[1]:
             # We have a 2000/95 conversion ratio for this CPU.
@@ -556,25 +557,25 @@ for MODE in ['INT', 'FP']:
 
     # Group results by brand, convert scores and sort.
     resultsByBrand = collections.defaultdict(list)
-    for cpu, results in resultsByCPU.iteritems():
+    for cpu, results in resultsByCPU.items():
         for r in results:
             convertedScore = r.score * conversionRatios[benchTypes.index(r.benchType)]
             resultsByBrand[cpu.brand].append(ResultInBrand(r.hwDate, convertedScore, cpu, r))
-    for rib in resultsByBrand.itervalues():
+    for rib in resultsByBrand.values():
         rib.sort()
 
     # Dump results file.                                             
     with redirected_to_file('%s_report.txt' % MODE.lower()):
-        print '%s = %f x %s' % (benchTypes[1], ratio2000, benchTypes[0])
-        print '%s = %f x %s' % (benchTypes[2], ratio2006, benchTypes[1])
-        print
+        print('%s = %f x %s' % (benchTypes[1], ratio2000, benchTypes[0]))
+        print('%s = %f x %s' % (benchTypes[2], ratio2006, benchTypes[1]))
+        print()
         for brand, rib in sorted(resultsByBrand.items()):
-            print
-            print
-            print brand
-            print '=' * len(brand)
+            print()
+            print()
+            print(brand)
+            print('=' * len(brand))
             for hwDate, convertedScore, cpu, result in rib:
-                print '    %s: %f by "%s" %d MHz (%s=%.1f, %s) %s' % (
+                print('    %s: %f by "%s" %d MHz (%s=%.1f, %s) %s' % (
                     hwDate.strftime('%Y-%b'),
                     convertedScore,
                     cpu.model,
@@ -582,7 +583,7 @@ for MODE in ['INT', 'FP']:
                     result.benchType,
                     result.score,
                     result.srec.testID,
-                    ', '.join([brec.base for brec in result.benches]))
+                    ', '.join([brec.base for brec in result.benches])))
 
     # Render the graph.
     if 'cairo' in globals():
