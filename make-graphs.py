@@ -187,6 +187,14 @@ def identifyCPU(r):
         return 'Intel Pentium', 'Pentium M'
     if cpu.startswith('AMD FX-'):
         return 'AMD FX', cpu[4:]
+    if cpu.startswith('AMD A10'):
+        return 'AMD A10', cpu[4:]
+    if cpu.startswith('AMD A4'):
+        return 'AMD A4', cpu[4:]
+    if cpu.startswith('AMD A6'):
+        return 'AMD A6', cpu[4:]
+    if cpu.startswith('AMD A8'):
+        return 'AMD A8', cpu[4:]
     if cpu.startswith('AMD'):
         name = cpu.split()
         return 'AMD ' + name[1], ' '.join(name[1:])
@@ -233,7 +241,7 @@ DISQUALIFIED_BENCHMARKS = [
 ]
 
 def iterCsvRecords(path, className):
-    with open(path, 'rb') as f:
+    with open(path, 'rt') as f:
         reader = csv.reader(f)
         clazz = None
         for row in reader:
@@ -323,22 +331,22 @@ def alignText(cr, scaledFont, align, text, x, y):
         cr.move_to(x - width * align - x_bearing, y)
         cr.show_text(text)
     
-ResultInBrand = collections.namedtuple('ResultInBrand', 'hwDate convertedScore cpu result')
+ResultInBrand = collections.namedtuple('ResultInBrand', 'hwDate convertedScore cpu result convertedScoreMhz benchType')
 
 def RenderGraph(mode, resultsByBrand, outPath):
     # If 1 pixel travels M months horizontally,
     # it should travel M*pixelAspect logScore points vertically,
     # and we fix the whole thing inside maxGraphSize.
-    maxGraphSize = (580.0, 380.0)
+    maxGraphSize = (800.0, 800.0)
     pixelAspect = 0.06   
-    minLogScore = -3
+    minLogScore = -6
     minDate = datetime.datetime(1995, 1, 1)
 
     # Calculate axis extents and actual graph size.
     allRibs = sum(list(resultsByBrand.values()), [])
     maxDate = max([r.hwDate for r in allRibs])
     months = monthDelta(minDate, maxDate)
-    maxLogScore = int(round(math.log(max([r.convertedScore for r in allRibs]), 2)))
+    maxLogScore = 5
     logScoreRange = maxLogScore - minLogScore
     pelsPerMonth = min(maxGraphSize[0] / months,
                        maxGraphSize[1] / logScoreRange * pixelAspect)
@@ -378,6 +386,7 @@ def RenderGraph(mode, resultsByBrand, outPath):
         ('f198dd', 'IBM POWER', triangle, 9),
         ('e040de', 'PowerPC', circle, 10),
         ('947b30', 'HP PA-RISC', circle, 15),
+        ('d56d55', 'AMD EPYC', circle, 16),
     ]
     recognized = set([b[1] for b in brandColors])
 
@@ -527,8 +536,8 @@ with redirected_to_file('identified_cpus.txt'):
         print('%-60s "%s" %s#%s' % (id, r.cpu, r.benchType, r.srec.testID))
 
 # Scan INT benchmarks, then FP.
-for MODE in ['INT', 'FP']:
-    benchTypes = [t % MODE for t in ['C%s95', 'C%s2000', 'C%s2006']]
+for MODE in ['INT']:
+    benchTypes = [t % MODE for t in ['C%s95', 'C%s2000', 'C%s2006', 'C%s2017']]
     
     # resultsByCPU: Maps CPUInfo to a list of results using that cpu.
     resultsByCPU = collections.defaultdict(list)
@@ -543,48 +552,73 @@ for MODE in ['INT', 'FP']:
     # available conversion ratios.
     ratio2000 = []
     ratio2006 = []
+    ratio2017 = []
+    freqratio2000 = []
+    freqratio2006 = []
+    freqratio2017 = []
     for cpu, results in resultsByCPU.items():
         sliceByType = [[r.score for r in results if r.benchType == b] for b in benchTypes]
         if sliceByType[0] and sliceByType[1]:
             # We have a 2000/95 conversion ratio for this CPU.
             ratio2000.append(geometricAverage(sliceByType[1]) / geometricAverage(sliceByType[0]))
+            freqratio2000.append(geometricAverage([i / cpu.mhz for i in sliceByType[1]]) / geometricAverage([i / cpu.mhz for i in sliceByType[0]]))
         if sliceByType[1] and sliceByType[2]:
             # We have a 2006/2000 conversion ratio for this CPU.
             ratio2006.append(geometricAverage(sliceByType[2]) / geometricAverage(sliceByType[1]))
+            freqratio2006.append(geometricAverage([i / cpu.mhz for i in sliceByType[2]]) / geometricAverage([i / cpu.mhz for i in sliceByType[1]]))
+        if sliceByType[2] and sliceByType[3]:
+            # We have a 2017/2006 conversion ratio for this CPU.
+            ratio2017.append(geometricAverage(sliceByType[3]) / geometricAverage(sliceByType[2]))
+            freqratio2017.append(geometricAverage([i / cpu.mhz for i in sliceByType[3]]) / geometricAverage([i / cpu.mhz for i in sliceByType[2]]))
+
     ratio2000 = geometricAverage(ratio2000)
     ratio2006 = geometricAverage(ratio2006)
-    conversionRatios = [ratio2000 * ratio2006, ratio2006, 1]
+    ratio2017 = geometricAverage(ratio2017)
+    freqratio2000 = geometricAverage(freqratio2000)
+    freqratio2006 = geometricAverage(freqratio2006)
+    freqratio2017 = geometricAverage(freqratio2017)
+
+    conversionRatios = [ratio2000 * ratio2006 * ratio2017, ratio2006 * ratio2017, ratio2017, 1]
+    freqconversionRatios = [freqratio2000 * freqratio2006 * freqratio2017, freqratio2006 * freqratio2017, freqratio2017, 1]
 
     # Group results by brand, convert scores and sort.
     resultsByBrand = collections.defaultdict(list)
     for cpu, results in resultsByCPU.items():
         for r in results:
             convertedScore = r.score * conversionRatios[benchTypes.index(r.benchType)]
-            resultsByBrand[cpu.brand].append(ResultInBrand(r.hwDate, convertedScore, cpu, r))
+            convertedScoreMhz = (r.score / cpu.mhz) * freqconversionRatios[benchTypes.index(r.benchType)]
+            resultsByBrand[cpu.brand].append(ResultInBrand(r.hwDate, convertedScore, cpu, r, convertedScoreMhz, r.benchType))
     for rib in resultsByBrand.values():
         rib.sort()
 
-    # Dump results file.                                             
-    with redirected_to_file('%s_report.txt' % MODE.lower()):
-        print('%s = %f x %s' % (benchTypes[1], ratio2000, benchTypes[0]))
-        print('%s = %f x %s' % (benchTypes[2], ratio2006, benchTypes[1]))
-        print()
+    with redirected_to_file("int_data.csv"):
+        print("CPU Name,Date,Score,MHz,Score/MHz,bench")
         for brand, rib in sorted(resultsByBrand.items()):
-            print()
-            print()
-            print(brand)
-            print('=' * len(brand))
-            for hwDate, convertedScore, cpu, result in rib:
-                print('    %s: %f by "%s" %d MHz (%s=%.1f, %s) %s' % (
-                    hwDate.strftime('%Y-%b'),
-                    convertedScore,
-                    cpu.model,
-                    cpu.mhz,
-                    result.benchType,
-                    result.score,
-                    result.srec.testID,
-                    ', '.join([brec.base for brec in result.benches])))
-
-    # Render the graph.
-    if 'cairo' in globals():
-        RenderGraph(MODE, resultsByBrand, '%s_graph.png' % MODE.lower())
+            for r in rib:
+                print("%s,%s,%s,%s,%s,%s" % (brand, r.hwDate, r.convertedScore, r.cpu.mhz, r.convertedScoreMhz,r.benchType))
+                #print(brand, rib)
+#     # Dump results file.                                             
+#     with redirected_to_file('%s_report.txt' % MODE.lower()):
+#         print('%s = %f x %s' % (benchTypes[1], ratio2000, benchTypes[0]))
+#         print('%s = %f x %s' % (benchTypes[2], ratio2006, benchTypes[1]))
+#         print('%s = %f x %s' % (benchTypes[3], ratio2017, benchTypes[2]))
+#         print()
+#         for brand, rib in sorted(resultsByBrand.items()):
+#             print()
+#             print()
+#             print(brand)
+#             print('=' * len(brand))
+#             for hwDate, convertedScore, cpu, result in rib:
+#                 print('    %s: %f by "%s" %d MHz (%s=%.1f, %s) %s' % (
+#                     hwDate.strftime('%Y-%b'),
+#                     convertedScore,
+#                     cpu.model,
+#                     cpu.mhz,
+#                     result.benchType,
+#                     result.score,
+#                     result.srec.testID,
+#                     ', '.join([brec.base for brec in result.benches])))
+# 
+#     # Render the graph.
+#     if 'cairo' in globals():
+#         RenderGraph(MODE, resultsByBrand, '%s_graph.png' % MODE.lower())

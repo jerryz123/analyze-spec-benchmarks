@@ -33,7 +33,7 @@ def ExtractMHzFromName(name):
 
 def parse95(path):
     testID = os.path.splitext(os.path.basename(path))[0]    
-    lineIter = iter(open(path))
+    lineIter = iter(open(path, errors='ignore'))
     for line in lineIter:
         if line.startswith('   ------------  --------  --------  --------  --------  --------  --------'):
             break
@@ -56,7 +56,7 @@ def parse95(path):
         'SPECfp_base95 (Geom. Mean)' : 'CFP95'
     }[benchType]
     base = line[35:45].strip()
-    peak = lineIter.next()[65:75].strip()
+    peak = lineIter.readline()[65:75].strip()
     properties = {}
     label = ''
     for line in lineIter:
@@ -98,7 +98,7 @@ def parse95(path):
 
 def parse2000(path):
     testID = os.path.splitext(os.path.basename(path))[0]    
-    lineIter = iter(open(path))
+    lineIter = iter(open(path, errors='ignore'))
     next(lineIter)
     hwAvail = scanUntilLine(lineIter, 'Hardware availability: (.*)')
     tester = scanUntilLine(lineIter, 'Tester: (.*?) *Software availability')
@@ -124,7 +124,7 @@ def parse2000(path):
         'SPECfp_base2000' : 'CFP2000'
     }[benchType]
     base = line[35:45].strip()
-    peak = lineIter.next()[65:75].strip()
+    peak = lineIter.readline()[65:75].strip()
     properties = {}
     label = ''
     for line in lineIter:
@@ -153,10 +153,10 @@ def parse2000(path):
 
 def parse2006(path):
     testID = os.path.splitext(os.path.basename(path))[0]    
-    lineIter = iter(open(path))
+    lineIter = iter(open(path, errors='ignore'))
     if '######################' in next(lineIter):
         return [], []
-    model = lineIter.next().strip()
+    model = lineIter.readline().strip()
     hwAvail = scanUntilLine(lineIter, 'Hardware availability: (.*)')
     tester = scanUntilLine(lineIter, 'Tested by:    (.*?) *Software availability')
     if model.startswith(tester):
@@ -187,7 +187,7 @@ def parse2006(path):
         'SPECfp(R)_rate_base2006' : 'CFP2006'
     }[benchType]
     base = line[33:43].strip()
-    peak = lineIter.next()[65:75].strip()
+    peak = lineIter.readline()[65:75].strip()
     properties = {}
     label = ''
     for line in lineIter:
@@ -213,16 +213,89 @@ def parse2006(path):
     testRecord = TestRecord(testID, tester, model, cpu, mhz, hwAvail, opSys, compiler, autoParallel, benchType, base, peak)
     return [testRecord], benches
 
+def parse2017(path):
+    testID = os.path.splitext(os.path.basename(path))[0]    
+    lineIter = iter(open(path, errors='ignore'))
+    if '######################' in next(lineIter):
+        return [], []
+
+    model = lineIter.readline().strip()
+    hwAvail = scanUntilLine(lineIter, 'Hardware availability: (.*)')
+    tester = scanUntilLine(lineIter, 'Tested by:    (.*?) *Software availability')
+    if model.startswith(tester):
+        model = model[len(tester):].strip()
+    for line in lineIter:
+        if line.startswith('=============================================================================='):
+            break
+        if 'SPEC(R) has determined that this result does not' in line:
+            return [], []
+    benches = []
+    benchType = None
+    for line in lineIter:
+        m = re.match(' (SPEC.{27})  ', line)
+        if m:
+            benchType = m.group(1).strip()
+            break
+        benchName = line[:16].strip()
+        base = line[35:45].strip()
+        peak = line[67:78].strip()
+        if len(base) == 0 or len(peak) == 0 or base.isspace() or peak.isspace():
+            return [], []
+        if len(line) != 82:
+            return [], []
+        fbase = float(base)
+        fpeak = float(peak)
+        benches.append(BenchRecord(testID, benchName, base, peak))
+    if benchType is None:
+        print(path)
+    if '_rate_' in benchType:
+        return [], []
+    benchType = {
+        'SPECspeed(R)2017_int_base' : 'CINT2017',
+        'SPECspeed2017_int_base' : 'CINT2017',
+        'SPECspeed2017_int_peak' : 'CINT2017'
+        }[benchType]
+    base = line[35:45].strip()
+    peak = lineIter.readline()[67:78].strip()
+    properties = {}
+    label = ''
+    for line in lineIter:
+        l = line.strip()
+        if l in ['HARDWARE', 'SOFTWARE', '--------']:
+            continue
+        if l == 'Submit Notes':
+            break
+        if line[20:21] == ':':
+            label = line[:20].strip()
+        desc = line[22:].strip()
+        if label and desc:
+            label = label.replace('.', '')
+            if label in properties:
+                properties[label] += ' ' + desc
+            else:
+                properties[label] = desc
+    cpu = properties['CPU Name']
+    mhz = float(properties['Nominal'])
+    opSys = properties['OS']
+    compiler = properties['Compiler']
+    autoParallel = properties['Parallel']
+
+    testRecord = TestRecord(testID, tester, model, cpu, mhz, hwAvail, opSys, compiler, autoParallel, benchType, base, peak)
+    return [testRecord], benches
+
+
 def iterRecords():
     allTests = []
     
-    for fn in os.listdir(os.path.join('scraped', 'cpu95')):
+    for fn in os.listdir(os.path.join('scraped', 'cint95')):
         if fn.lower().endswith('.asc'):
-            allTests.append((parse95, os.path.join('scraped', 'cpu95', fn)))
-    for fn in os.listdir(os.path.join('scraped', 'cpu2000')):
-        allTests.append((parse2000, os.path.join('scraped', 'cpu2000', fn)))
-    for fn in os.listdir(os.path.join('scraped', 'cpu2006')):
-        allTests.append((parse2006, os.path.join('scraped', 'cpu2006', fn)))
+            allTests.append((parse95, os.path.join('scraped', 'cint95', fn)))
+    for fn in os.listdir(os.path.join('scraped', 'cint2000')):
+        allTests.append((parse2000, os.path.join('scraped', 'cint2000', fn)))
+    for fn in os.listdir(os.path.join('scraped', 'cint2006')):
+        allTests.append((parse2006, os.path.join('scraped', 'cint2006', fn)))
+    for fn in os.listdir(os.path.join('scraped', 'cint2017')):
+        allTests.append((parse2017, os.path.join('scraped', 'cint2017', fn)))
     
     tests = []
     benches = []

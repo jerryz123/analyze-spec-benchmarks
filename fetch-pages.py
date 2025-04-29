@@ -24,7 +24,7 @@ def cachedFetch(url, localPath, verbose=True):
       except:
         time.sleep(sleepTime)
         sleepTime*=2
-        print('Fetching Hit a snag fetching the page, retrying...')
+        print('Fetching Hit a snag fetching the page, retrying... %s' % url)
     with open(localPath, 'wb') as f:
         f.write(data)
     return 'Fetched ' + url
@@ -67,8 +67,8 @@ def iterateAllPageURLs():
 
 
 if __name__ == '__main__':
-    allPageURLs = list(iterateAllPageURLs())
-    pool = multiprocessing.Pool(4)
+    allPageURLs = list(filter(lambda x: "content" not in x[0] and "permute" not in x[0], list(iterateAllPageURLs())))
+    pool = multiprocessing.Pool(64)
     i = 0
     for result in pool.imap_unordered(mpFetch, allPageURLs):
         i += 1
